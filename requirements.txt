@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pillow
+requests
+opencv-contrib-python-headless
+insightface
