@@ -21,16 +21,17 @@ Mục tiêu: cung cấp một điểm gợi ý `{x, y}` giúp bạn crop ảnh �
 | Phương thức | Endpoint                  | Mô tả |
 |------------|----------------------------|-------|
 | GET        | `/focus-point`             | Trả về `{x, y}` focus point từ ảnh |
-| GET        | `/debug/face-boxes`        | Trả về danh sách bounding box khuôn mặt |
+| GET        | `/debug/faces`             | Trả về danh sách bounding box khuôn mặt |
 | GET        | `/debug/image-with-boxes`  | Trả về ảnh JPG với khung đỏ quanh mặt |
 | GET        | `/debug/image-with-focus`  | Trả về ảnh JPG với chấm đỏ tại focus point |
+| GET        | `/debug/saliency-map`      | Trả về bản đồ saliency dạng grayscale JPG |
 
 ---
 
 ## 🚀 Cách sử dụng nhanh với Docker
 
 ```bash
-git clone https://github.com/your-name/focus-point-finder.git
+git clone https://github.com/voduytuan/focus-point-finder.git
 cd focus-point-finder
 
 docker build -t focus-point-finder .
@@ -39,7 +40,7 @@ docker run -p 8000:8000 focus-point-finder
 
 Gọi thử:
 ```
-http://localhost:8000/focus-point?image_url=https://your-image-url.jpg
+http://localhost:8000/focus-point?url=https://your-image-url.jpg
 ```
 
 ---

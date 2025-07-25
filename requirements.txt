@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-pillow
-requests
-opencv-contrib-python-headless
 insightface
+onnxruntime
+Pillow
+opencv-contrib-python-headless==4.9.0.80
+numpy<2.0

@@ -1,87 +1,119 @@
-from fastapi import FastAPI, Query, Response, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import requests
-from PIL import Image, ImageDraw, UnidentifiedImageError
-import numpy as np
-import io
-import cv2
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse, StreamingResponse
 import insightface
+import numpy as np
+import cv2
+import urllib.request
+from PIL import Image, ImageDraw
+import io
 
 app = FastAPI()
-face_model = insightface.app.FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-face_model.prepare(ctx_id=0)
 
-class FocusPoint(BaseModel):
-    x: int
-    y: int
+model = insightface.app.FaceAnalysis(name='buffalo_l')
+model.prepare(ctx_id=0)
 
-def get_image_from_url(image_url: str):
+def download_image(url):
     try:
-        response = requests.get(image_url, timeout=5)
-        response.raise_for_status()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Cannot fetch image from URL.")
-    try:
-        image = Image.open(io.BytesIO(response.content)).convert("RGB")
-    except UnidentifiedImageError:
-        raise HTTPException(status_code=400, detail="URL does not point to a valid image.")
-    return image
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            image_data = resp.read()
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        return np.array(image)
+    except Exception as e:
+        raise RuntimeError(f"Failed to download or parse image: {e}")
 
-def get_focus_point_from_image(np_image: np.ndarray) -> tuple[int, int]:
-    faces = face_model.get(np_image)
+def get_saliency_point(img):
+    try:
+        saliency = cv2.saliency.StaticSaliencyFineGrained_create()
+        success, saliency_map = saliency.computeSaliency(img)
+        if success:
+            saliency_map = (saliency_map * 255).astype("uint8")
+            _, _, _, max_loc = cv2.minMaxLoc(saliency_map)
+            return max_loc, saliency_map
+    except Exception as e:
+        print("⚠️ Saliency error:", e)
+    return None, None
+
+def get_focus_point(img, faces):
     if faces:
-        sorted_faces = sorted(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]), reverse=True)[:3]
-        centers = [((f.bbox[0]+f.bbox[2])//2, (f.bbox[1]+f.bbox[3])//2) for f in sorted_faces]
-        x = sum([c[0] for c in centers]) // len(centers)
-        y = sum([c[1] for c in centers]) // len(centers)
-        return int(x), int(y)
-    else:
-        image_bgr = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
-        saliency = cv2.saliency.StaticSaliencySpectralResidual_create()
-        (success, saliencyMap) = saliency.computeSaliency(image_bgr)
-        saliencyMap = (saliencyMap * 255).astype("uint8")
-        minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(saliencyMap)
-        return int(maxLoc[0]), int(maxLoc[1])
+        x = int(np.mean([(f.bbox[0] + f.bbox[2]) / 2 for f in faces]))
+        y = int(np.mean([(f.bbox[1] + f.bbox[3]) / 2 for f in faces]))
+        print("✅ Using face center")
+        return (x, y), None
 
-@app.get("/focus-point", response_model=FocusPoint)
-def get_focus_point(image_url: str = Query(...)):
-    image = get_image_from_url(image_url)
-    np_image = np.array(image)
-    x, y = get_focus_point_from_image(np_image)
-    return FocusPoint(x=x, y=y)
+    print("⚠️ No face found, using saliency fallback")
+    point, _ = get_saliency_point(img)
+    if point:
+        print("✅ Saliency returned:", point)
+        return point, None
 
-@app.get("/debug/face-boxes")
-def get_face_boxes(image_url: str = Query(...)):
-    image = get_image_from_url(image_url)
-    np_image = np.array(image)
-    faces = face_model.get(np_image)
-    boxes = []
-    for f in faces:
-        x1, y1, x2, y2 = [int(v) for v in f.bbox]
-        boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2})
-    return JSONResponse(content=boxes)
+    h, w = img.shape[:2]
+    print("⚠️ Final fallback to center")
+    return (w // 2, h // 2), None
+
+@app.get("/focus-point")
+def focus_point(image_url: str = Query(..., alias="url")):
+    try:
+        img = download_image(image_url)
+        faces = model.get(img)
+        (x, y), _ = get_focus_point(img, faces)
+        return {"x": x, "y": y}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+@app.get("/debug/faces")
+def debug_faces(image_url: str = Query(..., alias="url")):
+    try:
+        img = download_image(image_url)
+        faces = model.get(img)
+        return [{"bbox": list(map(int, f.bbox))} for f in faces]
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.get("/debug/image-with-boxes")
-def image_with_boxes(image_url: str = Query(...)):
-    image = get_image_from_url(image_url)
-    draw = ImageDraw.Draw(image)
-    np_image = np.array(image)
-    faces = face_model.get(np_image)
-    for f in faces:
-        x1, y1, x2, y2 = [int(v) for v in f.bbox]
-        draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
-    output = io.BytesIO()
-    image.save(output, format="JPEG")
-    return Response(content=output.getvalue(), media_type="image/jpeg")
+def debug_image_with_boxes(image_url: str = Query(..., alias="url")):
+    try:
+        img = download_image(image_url)
+        faces = model.get(img)
+        img_pil = Image.fromarray(img)
+        draw = ImageDraw.Draw(img_pil)
+        for f in faces:
+            box = list(map(int, f.bbox))
+            draw.rectangle(box, outline="red", width=3)
+        buf = io.BytesIO()
+        img_pil.save(buf, format="JPEG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.get("/debug/image-with-focus")
-def image_with_focus(image_url: str = Query(...)):
-    image = get_image_from_url(image_url)
-    np_image = np.array(image)
-    draw = ImageDraw.Draw(image)
-    x, y = get_focus_point_from_image(np_image)
-    draw.ellipse([(x-5, y-5), (x+5, y+5)], fill="red")
-    output = io.BytesIO()
-    image.save(output, format="JPEG")
-    return Response(content=output.getvalue(), media_type="image/jpeg")
+def debug_image_with_focus(image_url: str = Query(..., alias="url")):
+    try:
+        img = download_image(image_url)
+        faces = model.get(img)
+        (x, y), _ = get_focus_point(img, faces)
+        img_pil = Image.fromarray(img)
+        draw = ImageDraw.Draw(img_pil)
+        draw.ellipse((x-5, y-5, x+5, y+5), fill="red")
+        buf = io.BytesIO()
+        img_pil.save(buf, format="JPEG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+@app.get("/debug/saliency-map")
+def debug_saliency_map(image_url: str = Query(..., alias="url")):
+    try:
+        img = download_image(image_url)
+        point, saliency_map = get_saliency_point(img)
+        if saliency_map is None:
+            raise RuntimeError("Could not compute saliency map.")
+        sal_pil = Image.fromarray(saliency_map)
+        buf = io.BytesIO()
+        sal_pil.save(buf, format="JPEG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
