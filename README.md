@@ -4,6 +4,12 @@
 
 Mục tiêu: cung cấp một điểm gợi ý `{x, y}` giúp bạn crop ảnh đẹp hơn, tránh mất nội dung chính.
 
+## Focus Point Finder Demo
+
+Ảnh minh họa việc ứng dụng Focus Point vào crop hình:
+
+![Focus Point Usage](https://raw.githubusercontent.com/voduytuan/focus-point-finder/main/focus-point-finder.png)
+
 ---
 
 ## ✨ Tính năng
