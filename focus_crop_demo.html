@@ -1,0 +1,86 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Focus Point Crop Demo</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { border: 1px solid #ccc; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>🎯 Crop Image theo Focus Point</h2>
+
+  <label>Upload image: <input type="file" id="imageInput" accept="image/*" /></label><br/><br/>
+  <label>Focus X: <input type="number" id="focusX" value="0" step="1" /></label>
+  <label>Focus Y: <input type="number" id="focusY" value="0" step="1" /></label>
+  <label><input type="checkbox" id="isPercent" /> Tính theo phần trăm (0-1)</label><br/><br/>
+
+  <label>Output Ratio:
+    <select id="ratio">
+      <option value="1">1:1 (square)</option>
+      <option value="4/3">4:3</option>
+      <option value="3/4">3:4</option>
+      <option value="16/9">16:9</option>
+      <option value="9/16">9:16</option>
+    </select>
+  </label><br/><br/>
+  <button onclick="cropAndDraw()">Crop and Render</button>
+
+  <br/><canvas id="canvas" width="400" height="400"></canvas>
+
+  <script>
+    let img = new Image();
+
+    document.getElementById("imageInput").addEventListener("change", function (e) {
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        img.onload = function () {
+          cropAndDraw();
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    });
+
+    function cropAndDraw() {
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const isPercent = document.getElementById("isPercent").checked;
+      const ratio = eval(document.getElementById("ratio").value);
+
+      const iw = img.width;
+      const ih = img.height;
+      const ir = iw / ih;
+
+      const fxInput = parseFloat(document.getElementById("focusX").value);
+      const fyInput = parseFloat(document.getElementById("focusY").value);
+      const cx = isPercent ? fxInput * iw : fxInput;
+      const cy = isPercent ? fyInput * ih : fyInput;
+
+      let cropW, cropH;
+      if (ir > ratio) {
+        cropH = ih;
+        cropW = ih * ratio;
+      } else {
+        cropW = iw;
+        cropH = iw / ratio;
+      }
+
+      let sx = cx - cropW / 2;
+      let sy = cy - cropH / 2;
+
+      if (sx < 0) sx = 0;
+      if (sy < 0) sy = 0;
+      if (sx + cropW > iw) sx = iw - cropW;
+      if (sy + cropH > ih) sy = ih - cropH;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+    }
+  </script>
+</body>
+</html>
